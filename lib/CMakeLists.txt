@@ -9,6 +9,7 @@
 
 add_library(xp3crypt_core STATIC
 	crypt.cpp
+	read.cpp
 	monocypher/monocypher.c)
 target_include_directories(xp3crypt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(xp3crypt_core PUBLIC cxx_std_17)

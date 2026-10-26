@@ -12,6 +12,7 @@ krkrz_plugin(xp3crypt NCBIND
 	SOURCES
 		main.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/../../lib/crypt.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/../../lib/read.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/../../lib/monocypher/monocypher.c
 	INCLUDES
 		${CMAKE_CURRENT_SOURCE_DIR}/../../lib

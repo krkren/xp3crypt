@@ -26,7 +26,8 @@ int usage() {
 	std::cerr <<
 	    "xp3crypt - encrypted XP3 archives for Kirikiri Z\n\n"
 	    "  xp3crypt keygen  <keyfile>                      make a new random key\n"
-	    "  xp3crypt pack    <folder> <out.xp3> --keyfile <path>   pack, encrypted\n"
+	    "  xp3crypt pack    <folder> <out.xp3> [--hash] --keyfile <path>   pack, encrypted\n"
+	    "                                                   --hash also hides the file names\n"
 	    "  xp3crypt setkey  <binary> --keyfile <path>      write the key into a binary's slot\n"
 	    "  xp3crypt readkey <binary>                       print the key in a binary\n"
 	    "  xp3crypt check   <binary>                       report the slot and key\n\n"
@@ -84,8 +85,10 @@ int keygen(const std::vector<std::string> &rest) {
 
 int pack(const std::vector<std::string> &rest) {
 	std::vector<std::string> pos;
+	bool hash = false;
 	for (size_t i = 0; i < rest.size(); i++) {
 		if (rest[i] == "--key" || rest[i] == "--keyfile") { i++; continue; }
+		if (rest[i] == "--hash") { hash = true; continue; }
 		pos.push_back(rest[i]);
 	}
 	if (pos.size() < 2) return usage();
@@ -95,6 +98,8 @@ int pack(const std::vector<std::string> &rest) {
 
 	xp3crypt::PackResult result;
 	xp3crypt::PackOptions opt;
+	opt.hashNames = hash;
+	if (hash) opt.compressIndex = false;
 	const bool ok = xp3crypt::pack(pos[0], pos[1], key, opt, result, error,
 	    [](const std::string &name, uint64_t, uint64_t) { std::cout << "  " << name << "\n"; return true; });
 	xp3crypt::wipe(key);

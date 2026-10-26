@@ -97,4 +97,42 @@ void wipe(Key &key) {
 	crypto_wipe(key.data(), key.size());
 }
 
+// A path as the hash sees it: lower case, '\' as '/', collapsed slashes, no leading '/'
+std::string normalizeName(const std::string &path) {
+	std::string s;
+	s.reserve(path.size());
+	for (char c : path) {
+		if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+		else if (c == '\\') c = '/';
+		if (c == '/' && (s.empty() || s.back() == '/')) continue;   // no leading or doubled '/'
+		s.push_back(c);
+	}
+	while (!s.empty() && s.back() == '/') s.pop_back();
+	return s;
+}
+
+// A sentinel path for the manifest: a leading control byte, so it can't be a real file name
+static const char MANIFEST_SENTINEL[] = "\x01xp3crypt/manifest";
+
+std::string manifestName(const Key &key) {
+	return hashName(key, std::string(MANIFEST_SENTINEL, sizeof(MANIFEST_SENTINEL) - 1));
+}
+
+std::string hashName(const Key &key, const std::string &path) {
+	const std::string norm = normalizeName(path);
+	static const char CTX[] = "xp3crypt name v1";
+	std::string msg(CTX, sizeof(CTX) - 1);
+	msg += norm;
+	uint8_t h[16];
+	crypto_blake2b_keyed(h, sizeof(h), key.data(), key.size(),
+	                     reinterpret_cast<const uint8_t *>(msg.data()), msg.size());
+	static const char *digits = "0123456789abcdef";
+	std::string out;
+	for (uint8_t b : h) {
+		out.push_back(digits[b >> 4]);
+		out.push_back(digits[b & 15]);
+	}
+	return out;
+}
+
 } // namespace xp3crypt

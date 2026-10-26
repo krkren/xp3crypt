@@ -104,7 +104,7 @@ bool pack(const fs::path &sourceDir, const fs::path &output, const Key &key, con
 	const uint64_t indexPointerPos = 32;
 	write("\0\0\0\0\0\0\0\0", 8);   // real index position, filled in at the end
 
-	struct Packed { std::string name; uint32_t salt; uint64_t start; uint64_t size; };
+	struct Packed { std::string name; uint32_t salt; uint64_t start; uint64_t size; bool manifest = false; };
 	std::vector<Packed> packed;
 
 	uint64_t total = 0, done = 0;
@@ -130,10 +130,27 @@ bool pack(const fs::path &sourceDir, const fs::path &output, const Key &key, con
 		done += std::max<uint64_t>(f.size, 1);
 	}
 
-	// the index: one "File" chunk per file (info, segm, adlr)
+	// a hashed archive carries an encrypted manifest of the real paths, so the plugin can list
+	// folders (the engine resolves a bare name by listing the folder it's in)
+	if (opt.hashNames) {
+		std::string manifest;
+		for (const auto &p : packed) { manifest += p.name; manifest += '\n'; }
+		std::vector<uint8_t> mbuf(manifest.begin(), manifest.end());
+		++salt;
+		const uint64_t start = uint64_t(out.tellp());
+		if (!mbuf.empty()) {
+			xorFile(mbuf.data(), mbuf.size(), 0, salt, key);
+			write(mbuf.data(), mbuf.size());
+		}
+		packed.push_back({ std::string(), salt, start, uint64_t(mbuf.size()), true });
+	}
+
+	// the index: one "File" chunk per file (info, segm, adlr). With hashNames, each file's
+	// stored name is a keyed hash of its path, not the path
 	std::string index;
 	for (const auto &p : packed) {
-		const std::u16string n16 = utf8ToUtf16(p.name);
+		const std::string stored = p.manifest ? manifestName(key) : opt.hashNames ? hashName(key, p.name) : p.name;
+		const std::u16string n16 = utf8ToUtf16(stored);
 		std::string info;
 		put32(info, 0);            // flags (not the protect bit: the engine refuses those at load)
 		put64(info, p.size);       // original size

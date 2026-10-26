@@ -48,6 +48,22 @@ constexpr size_t KEY_SIZE = 32;
 void xorFile(uint8_t *buf, size_t size, uint64_t offset, uint32_t fileHash, const Key &key);
 
 //---------------------------------------------------------------------------
+// Hashed file names (an archive whose index holds a keyed hash of each path, not the path):
+// the packer stores hashName(key, path) as a file's name, and the plugin's storage medium
+// resolves a request by hashing it the same way. The hash is keyed with the game key, so the
+// hashes differ per game and can't be precomputed or carried from one game to another.
+//---------------------------------------------------------------------------
+
+/// A path's stored name: 32 lowercase hex digits, a keyed hash of the normalized path (lower
+/// case, '\' as '/', collapsed and no leading '/'). The same path always gives the same name
+std::string hashName(const Key &key, const std::string &path);
+
+/// The stored name of a hashed archive's name manifest: an encrypted file, keyed like any
+/// other, holding the real paths (one per line) so the plugin can list folders (the engine
+/// resolves a bare name by listing the folder it's in). It's hidden among the hashes
+std::string manifestName(const Key &key);
+
+//---------------------------------------------------------------------------
 // Keys as text and from the system's random source
 //---------------------------------------------------------------------------
 
@@ -93,6 +109,7 @@ int writeSlots(std::vector<uint8_t> &binary, const Key &key, std::string &error)
 
 struct PackOptions {
 	bool compressIndex = true;          ///< zlib-compress the file index (when built with zlib)
+	bool hashNames = false;             ///< store hashName(key, path) as each file's name
 	std::set<std::string> discard;      ///< lowercase ".ext" to leave out (e.g. ".bak")
 };
 
@@ -110,5 +127,23 @@ using Progress = std::function<bool(const std::string &, uint64_t, uint64_t)>;
 /// an encrypted archive at `output`, each file encrypted with `key`. false + error on failure
 bool pack(const std::filesystem::path &sourceDir, const std::filesystem::path &output, const Key &key,
           const PackOptions &opt, PackResult &result, std::string &error, const Progress &progress = {});
+
+//---------------------------------------------------------------------------
+// Reading an archive's index (for the storage medium and the tests)
+//---------------------------------------------------------------------------
+
+struct IndexEntry {
+	std::string name;       ///< the stored name (a hash in a hashed archive)
+	uint64_t offset = 0;    ///< the file's bytes in the archive
+	uint64_t size = 0;
+	uint32_t fileHash = 0;  ///< the adlr number (the per-file cipher salt)
+};
+
+/// Reads `offset..offset+len` of the archive into `buf`
+using Reader = std::function<void(uint64_t offset, void *buf, size_t len)>;
+
+/// Parses an XP3 archive's index through `read` (the archive is `size` bytes). One segment per
+/// file is expected (as pack writes). false + error on a malformed archive
+bool readIndex(const Reader &read, uint64_t size, std::vector<IndexEntry> &out, std::string &error);
 
 } // namespace xp3crypt

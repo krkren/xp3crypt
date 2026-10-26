@@ -41,6 +41,22 @@ Ship the engine (with the key) and `data.xp3`. The plugin installs its extractio
 `startup.tjs`, so the archive is read transparently. An engine without a key reads a plain
 archive, so the same build works with or without encryption.
 
+## Hidden file names
+
+`xp3crypt pack <folder> <out> --hash --keyfile <key>` also hides the file names: the index
+stores a keyed hash of each path instead of the path, so a generic XP3 tool sees only hashes.
+The real names live in an encrypted manifest inside the archive, which only the plugin can read.
+
+The engine's built-in XP3 mount matches plain names, so a hashed archive is served through the
+plugin's own storage medium (`xpcrypt://`, as minizip serves `zip://`) instead: the plugin hashes
+each request and matches it, decrypts the file on read, and lists folders from the manifest so the
+engine still resolves a game's bare file names. The game mounts it with
+`XP3Crypt.mount("<domain>", "<archive>")` and adds `xpcrypt://<domain>/<folder>` to its auto path.
+
+The hash is keyed with the game key, so the hashes differ per game and can't be precomputed or
+carried between games. Like the content encryption, this keeps the names out of casual view; the
+key ships with the game, so a determined person can still recover them.
+
 ## License
 
 0BSD (`LICENSE`). Monocypher, which does the encryption, is under BSD-2-Clause or CC0

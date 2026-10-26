@@ -45,3 +45,7 @@ add_test(NAME crypt_test COMMAND crypt_test)
 add_executable(xp3_test tests/xp3_test.cpp)
 target_link_libraries(xp3_test PRIVATE xp3crypt_lib)
 add_test(NAME xp3_test COMMAND xp3_test)
+
+add_executable(hash_test tests/hash_test.cpp)
+target_link_libraries(hash_test PRIVATE xp3crypt_lib)
+add_test(NAME hash_test COMMAND hash_test)
