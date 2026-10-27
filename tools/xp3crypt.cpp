@@ -20,9 +20,37 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace {
+
+// The arguments (after the program's name) as UTF-8: on Windows argv is in the ANSI code page,
+// which can't hold every file name, so they're taken from the UTF-16 command line instead
+std::vector<std::string> utf8Args(int argc, char **argv) {
+#ifdef _WIN32
+	int n = 0;
+	if (wchar_t **w = CommandLineToArgvW(GetCommandLineW(), &n)) {
+		std::vector<std::string> out;
+		for (int i = 1; i < n; i++) {
+			const int len = WideCharToMultiByte(CP_UTF8, 0, w[i], -1, nullptr, 0, nullptr, nullptr);
+			std::string s(size_t(len > 0 ? len : 1), '\0');
+			if (len > 0) WideCharToMultiByte(CP_UTF8, 0, w[i], -1, s.data(), len, nullptr, nullptr);
+			s.pop_back();   // the terminating NUL
+			out.push_back(std::move(s));
+		}
+		LocalFree(w);
+		return out;
+	}
+#endif
+	return std::vector<std::string>(argv + 1, argv + argc);
+}
 
 int usage() {
 	std::cerr <<
@@ -39,8 +67,8 @@ int usage() {
 	return 2;
 }
 
-bool readFile(const fs::path &p, std::string &out) {
-	std::ifstream f(p, std::ios::binary);
+bool readFile(const std::string &path, std::string &out) {
+	std::ifstream f(xp3crypt::utf8ToPath(path), std::ios::binary);
 	if (!f) return false;
 	std::ostringstream ss;
 	ss << f.rdbuf();
@@ -48,8 +76,8 @@ bool readFile(const fs::path &p, std::string &out) {
 	return true;
 }
 
-bool writeFile(const fs::path &p, const std::string &data) {
-	std::ofstream f(p, std::ios::binary | std::ios::trunc);
+bool writeFile(const std::string &path, const std::string &data) {
+	std::ofstream f(xp3crypt::utf8ToPath(path), std::ios::binary | std::ios::trunc);
 	if (!f) return false;
 	f.write(data.data(), std::streamsize(data.size()));
 	return bool(f);
@@ -71,19 +99,19 @@ bool keyFromArgs(const std::vector<std::string> &args, xp3crypt::Key &key, std::
 
 int keygen(const std::vector<std::string> &rest) {
 	if (rest.empty()) return usage();
-	const fs::path file = rest[0];
+	const std::string &file = rest[0];
 	std::error_code ec;
-	if (fs::exists(file, ec)) { std::cerr << file.string() << " already exists; a key isn't replaced by mistake\n"; return 1; }
+	if (fs::exists(xp3crypt::utf8ToPath(file), ec)) { std::cerr << file << " already exists; a key isn't replaced by mistake\n"; return 1; }
 	try {
 		xp3crypt::Key key = xp3crypt::randomKey();
 		const std::string text = xp3crypt::formatKey(key) + "\n";
 		xp3crypt::wipe(key);
-		if (!writeFile(file, text)) { std::cerr << "can't write " << file.string() << "\n"; return 1; }
+		if (!writeFile(file, text)) { std::cerr << "can't write " << file << "\n"; return 1; }
 	} catch (const std::exception &e) {
 		std::cerr << e.what() << "\n";
 		return 1;
 	}
-	std::cout << "wrote a new key to " << file.string() << "\n";
+	std::cout << "wrote a new key to " << file << "\n";
 	return 0;
 }
 
@@ -111,7 +139,7 @@ int pack(const std::vector<std::string> &rest) {
 	opt.plainNames = plain;
 	opt.saltBase = uint32_t(saltBase);
 	if (hash) opt.compressIndex = false;
-	const bool ok = xp3crypt::pack(pos[0], pos[1], key, opt, result, error,
+	const bool ok = xp3crypt::pack(xp3crypt::utf8ToPath(pos[0]), xp3crypt::utf8ToPath(pos[1]), key, opt, result, error,
 	    [](const std::string &name, uint64_t, uint64_t) { std::cout << "  " << name << "\n"; return true; });
 	xp3crypt::wipe(key);
 	if (!ok) { std::cerr << "pack failed: " << error << "\n"; return 1; }
@@ -174,7 +202,7 @@ int check(const std::vector<std::string> &rest) {
 } // namespace
 
 int main(int argc, char **argv) {
-	std::vector<std::string> args(argv + 1, argv + argc);
+	const std::vector<std::string> args = utf8Args(argc, argv);
 	if (args.empty()) return usage();
 	const std::string cmd = args[0];
 	const std::vector<std::string> rest(args.begin() + 1, args.end());

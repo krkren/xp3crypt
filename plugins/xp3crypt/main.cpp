@@ -13,7 +13,8 @@
 // It also serves an archive whose file names are hashed, through a storage medium (xpcrypt://,
 // as minizip serves zip://): the engine's built-in XP3 mount matches plain names, so to hide
 // the names we do the lookup ourselves — each request is keyed-hashed and matched against the
-// hashes in the index, and the file's bytes are decrypted on read.
+// hashes in the index, and the file's bytes are decrypted on read. Like the engine's XP3 reader,
+// it lists and matches names in lower case (ASCII).
 //
 // It also exposes a small TJS class:
 //   XP3Crypt.hasKey                      -> whether a key has been written into this build
@@ -170,17 +171,10 @@ struct Blob {
 struct Mount {
 	ttstr archive;                                      // the archive's storage name
 	std::map<std::string, Blob> byHash;                 // stored name (the hash) -> its bytes
-	std::map<std::string, std::vector<std::string>> listing;   // folder (lower, no trailing /) -> leaf names
+	std::map<std::string, std::vector<std::string>> listing;   // folder -> leaf names, all lower case (manifestFolders)
 	xp3crypt::Key key;
 	~Mount() { xp3crypt::wipe(key); }
 };
-
-// The folder and leaf of a path ("a/b/c.ks" -> "a/b" + "c.ks"; "x" -> "" + "x")
-void splitPath(const std::string &path, std::string &folder, std::string &leaf) {
-	const size_t slash = path.find_last_of('/');
-	if (slash == std::string::npos) { folder.clear(); leaf = path; }
-	else { folder = path.substr(0, slash); leaf = path.substr(slash + 1); }
-}
 
 class Xp3cStorage : public iTVPStorageMedia {
 public:
@@ -190,7 +184,12 @@ public:
 	void TJS_INTF_METHOD Release() override { if (ref_ == 1) delete this; else ref_--; }
 	void TJS_INTF_METHOD GetName(ttstr &name) override { name = TJS_W("xpcrypt"); }
 	void TJS_INTF_METHOD NormalizeDomainName(ttstr &) override {}
-	void TJS_INTF_METHOD NormalizePathName(ttstr &) override {}
+	// Paths are lower case (ASCII), as the engine makes an archive's in-archive names: the
+	// engine picks a decoder by a name's extension as spelt, and the hash folds case anyway
+	void TJS_INTF_METHOD NormalizePathName(ttstr &name) override {
+		if (name.IsEmpty()) return;
+		for (tjs_char *p = name.Independ(); *p; p++) if (*p >= TJS_W('A') && *p <= TJS_W('Z')) *p += TJS_W('a') - TJS_W('A');
+	}
 	void TJS_INTF_METHOD GetListAt(const ttstr &name, iTVPStorageLister *lister) override {
 		if (!lister) return;
 		// name is "domain/folder"; list the manifest's leaves directly under that folder
@@ -273,19 +272,7 @@ public:
 				}
 				ms->Destruct();
 				if (!data.empty()) xp3crypt::xorFile(data.data(), data.size(), 0, mit->second.salt, key);
-				std::string path;
-				auto take = [&](const std::string &rel) {
-					if (rel.empty()) return;
-					std::string folder, leaf;
-					splitPath(rel, folder, leaf);
-					for (char &c : folder) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
-					m->listing[folder].push_back(leaf);
-				};
-				for (uint8_t b : data) {
-					if (b == '\n') { take(path); path.clear(); }
-					else path.push_back(char(b));
-				}
-				take(path);
+				m->listing = xp3crypt::manifestFolders(std::string(data.begin(), data.end()));
 			}
 		}
 		xp3crypt::wipe(key);

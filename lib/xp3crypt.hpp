@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -62,6 +63,12 @@ std::string hashName(const Key &key, const std::string &path);
 /// other, holding the real paths (one per line) so the plugin can list folders (the engine
 /// resolves a bare name by listing the folder it's in). It's hidden among the hashes
 std::string manifestName(const Key &key);
+
+/// A decrypted manifest as folders: each folder ("" for the top, no trailing '/') -> the names
+/// directly in it. Folders and names are lower case (ASCII 'A'-'Z' only, as hashName folds
+/// them), as the engine's own XP3 reader lists an archive: the engine picks an image decoder by
+/// the extension as a listed name spells it, so "a.PNG" has to come back as "a.png"
+std::map<std::string, std::vector<std::string>> manifestFolders(const std::string &manifest);
 
 //---------------------------------------------------------------------------
 // Keys as text and from the system's random source
@@ -107,10 +114,16 @@ int writeSlots(std::vector<uint8_t> &binary, const Key &key, std::string &error)
 // Packing a folder into an encrypted XP3 archive
 //---------------------------------------------------------------------------
 
+/// A path as UTF-8 with '/' separators, and back. Names in an archive (and in PackOptions and
+/// Progress) are UTF-8; path::string() and path(std::string) convert through the ANSI code page
+/// on Windows, which can't hold every name (string() throws on one it can't)
+std::string pathToUtf8(const std::filesystem::path &p);
+std::filesystem::path utf8ToPath(const std::string &s);
+
 struct PackOptions {
 	bool compressIndex = true;          ///< zlib-compress the file index (when built with zlib)
 	bool hashNames = false;             ///< store hashName(key, path) as each file's name
-	/// with hashNames, paths (relative, '/'-separated, as in the folder) stored under their own
+	/// with hashNames, paths (relative, '/'-separated UTF-8, as in the folder) stored under their own
 	/// name instead: the engine's built-in XP3 mount can then find them (a startup.tjs that
 	/// mounts the rest through xpcrypt://). They're still encrypted, and left out of the manifest
 	std::set<std::string> plainNames;
@@ -127,7 +140,7 @@ struct PackResult {
 	bool canceled = false;
 };
 
-/// name, bytes done, bytes total; return false to cancel
+/// name (UTF-8), bytes done, bytes total; return false to cancel
 using Progress = std::function<bool(const std::string &, uint64_t, uint64_t)>;
 
 /// Packs the files under `sourceDir` (skipping names that start with '.' and CVS folders) into
@@ -141,7 +154,7 @@ bool pack(const std::filesystem::path &sourceDir, const std::filesystem::path &o
 //---------------------------------------------------------------------------
 
 struct IndexEntry {
-	std::string name;       ///< the stored name (a hash in a hashed archive)
+	std::string name;       ///< the stored name, UTF-8 (a hash in a hashed archive)
 	uint64_t offset = 0;    ///< the file's bytes in the archive
 	uint64_t size = 0;
 	uint32_t fileHash = 0;  ///< the adlr number (the per-file cipher salt)

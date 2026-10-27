@@ -52,6 +52,8 @@ plugin's own storage medium (`xpcrypt://`, as minizip serves `zip://`) instead: 
 each request and matches it, decrypts the file on read, and lists folders from the manifest so the
 engine still resolves a game's bare file names. The game mounts it with
 `XP3Crypt.mount("<domain>", "<archive>")` and adds `xpcrypt://<domain>/<folder>` to its auto path.
+Like the engine's own XP3 reader, the medium lists and matches names in lower case (ASCII), so
+`bg.PNG` is found and decoded the same whether the archive hides its names or not.
 
 `--plain <path>` keeps a path's own name in a hashed archive (still encrypted, and not in the
 manifest). That's how a game ships as a hashed `data.xp3` with nothing beside it: the engine opens

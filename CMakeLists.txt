@@ -35,6 +35,9 @@ endif()
 add_executable(xp3crypt_cli tools/xp3crypt.cpp)
 set_target_properties(xp3crypt_cli PROPERTIES OUTPUT_NAME xp3crypt)
 target_link_libraries(xp3crypt_cli PRIVATE xp3crypt_lib)
+if(WIN32)
+	target_link_libraries(xp3crypt_cli PRIVATE shell32)   # CommandLineToArgvW (UTF-16 arguments)
+endif()
 
 # Tests
 enable_testing()
@@ -49,3 +52,7 @@ add_test(NAME xp3_test COMMAND xp3_test)
 add_executable(hash_test tests/hash_test.cpp)
 target_link_libraries(hash_test PRIVATE xp3crypt_lib)
 add_test(NAME hash_test COMMAND hash_test)
+
+add_executable(names_test tests/names_test.cpp)
+target_link_libraries(names_test PRIVATE xp3crypt_lib)
+add_test(NAME names_test COMMAND names_test)

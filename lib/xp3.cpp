@@ -52,12 +52,27 @@ std::u16string utf8ToUtf16(const std::string &s) {
 }
 
 std::string lowerExt(const fs::path &p) {
-	std::string e = p.extension().string();
-	for (char &c : e) c = char(std::tolower((unsigned char)c));
+	std::string e = pathToUtf8(p.extension());
+	for (char &c : e) if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
 	return e;
 }
 
 } // namespace
+
+// u8string() is UTF-8 everywhere, but a std::string only before C++20 (a std::u8string after),
+// and u8path() is deprecated in C++20: a parent build may well use either standard
+std::string pathToUtf8(const fs::path &p) {
+	const auto s = p.generic_u8string();
+	return std::string(s.begin(), s.end());
+}
+
+fs::path utf8ToPath(const std::string &s) {
+#ifdef __cpp_lib_char8_t
+	return fs::path(std::u8string(s.begin(), s.end()));
+#else
+	return fs::u8path(s);
+#endif
+}
 
 bool pack(const fs::path &sourceDir, const fs::path &output, const Key &key, const PackOptions &opt,
           PackResult &result, std::string &error, const Progress &progress) {
@@ -69,10 +84,10 @@ bool pack(const fs::path &sourceDir, const fs::path &output, const Key &key, con
 	std::vector<Src> files;
 	const fs::path outAbs = fs::weakly_canonical(output, ec);
 	auto it = fs::recursive_directory_iterator(sourceDir, fs::directory_options::skip_permission_denied, ec);
-	if (ec) { error = "can't open the folder " + sourceDir.string(); return false; }
+	if (ec) { error = "can't open the folder " + pathToUtf8(sourceDir); return false; }
 	for (; it != fs::recursive_directory_iterator(); it.increment(ec)) {
 		if (ec) { error = "can't read the folder: " + ec.message(); return false; }
-		const std::string fname = it->path().filename().string();
+		const std::string fname = pathToUtf8(it->path().filename());
 		if (it->is_directory(ec)) {
 			if ((!fname.empty() && fname[0] == '.') || fname == "CVS") it.disable_recursion_pending();
 			continue;
@@ -81,13 +96,13 @@ bool pack(const fs::path &sourceDir, const fs::path &output, const Key &key, con
 		if (!fname.empty() && fname[0] == '.') continue;
 		if (fs::weakly_canonical(it->path(), ec) == outAbs) continue;
 		if (opt.discard.count(lowerExt(it->path()))) continue;
-		std::string name = fs::relative(it->path(), sourceDir, ec).generic_string();
+		std::string name = pathToUtf8(fs::relative(it->path(), sourceDir, ec));
 		files.push_back({ it->path(), name, uint64_t(it->file_size(ec)) });
 	}
 	std::sort(files.begin(), files.end(), [](const Src &a, const Src &b) { return a.name < b.name; });
 
 	std::ofstream out(output, std::ios::binary | std::ios::trunc);
-	if (!out) { error = "can't create " + output.string(); return false; }
+	if (!out) { error = "can't create " + pathToUtf8(output); return false; }
 	auto write = [&](const void *p, size_t n) { out.write(reinterpret_cast<const char *>(p), std::streamsize(n)); };
 
 	// header (cushion form): offset 11 -> 0x17, which holds an empty "continue" index, then the
@@ -205,7 +220,7 @@ bool pack(const fs::path &sourceDir, const fs::path &output, const Key &key, con
 	std::string ptr;
 	put64(ptr, indexPos);
 	write(ptr.data(), ptr.size());
-	if (!out) { error = "writing " + output.string() + " failed"; return false; }
+	if (!out) { error = "writing " + pathToUtf8(output) + " failed"; return false; }
 	out.close();
 	result.arcBytes = endPos;
 	return true;

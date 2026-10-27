@@ -1,6 +1,7 @@
-// read.cpp - parsing an XP3 archive's index (the storage medium and the tests use it). No file
-// system, and no zlib unless the archive's index is compressed (hashed archives are packed with
-// an uncompressed index, so the plugin needs no zlib). See xp3crypt.hpp.
+// read.cpp - parsing an XP3 archive's index and a hashed archive's name manifest (the storage
+// medium and the tests use them). No file system, and no zlib unless the archive's index is
+// compressed (hashed archives are packed with an uncompressed index, so the plugin needs no
+// zlib). See xp3crypt.hpp.
 //
 // SPDX-License-Identifier: 0BSD
 
@@ -32,7 +33,45 @@ bool findChunk(const std::vector<uint8_t> &d, size_t from, size_t to, const char
 	return false;
 }
 
+// An index name (UTF-16) as UTF-8; an unpaired surrogate becomes U+FFFD
+std::string utf16ToUtf8(const std::vector<uint16_t> &s) {
+	std::string out;
+	for (size_t k = 0; k < s.size(); k++) {
+		uint32_t c = s[k];
+		if (c >= 0xD800 && c < 0xDC00 && k + 1 < s.size() && s[k + 1] >= 0xDC00 && s[k + 1] < 0xE000) {
+			c = 0x10000 + ((c - 0xD800) << 10) + (s[k + 1] - 0xDC00);
+			k++;
+		} else if (c >= 0xD800 && c < 0xE000) {
+			c = 0xFFFD;
+		}
+		if (c < 0x80) out.push_back(char(c));
+		else if (c < 0x800) { out.push_back(char(0xC0 | (c >> 6))); out.push_back(char(0x80 | (c & 0x3F))); }
+		else if (c < 0x10000) { out.push_back(char(0xE0 | (c >> 12))); out.push_back(char(0x80 | ((c >> 6) & 0x3F))); out.push_back(char(0x80 | (c & 0x3F))); }
+		else { out.push_back(char(0xF0 | (c >> 18))); out.push_back(char(0x80 | ((c >> 12) & 0x3F))); out.push_back(char(0x80 | ((c >> 6) & 0x3F))); out.push_back(char(0x80 | (c & 0x3F))); }
+	}
+	return out;
+}
+
+void lowerAscii(std::string &s) {
+	for (char &c : s) if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+}
+
 } // namespace
+
+std::map<std::string, std::vector<std::string>> manifestFolders(const std::string &manifest) {
+	std::map<std::string, std::vector<std::string>> folders;
+	auto take = [&](std::string path) {
+		if (path.empty()) return;
+		lowerAscii(path);
+		const size_t slash = path.find_last_of('/');
+		if (slash == std::string::npos) folders[std::string()].push_back(path);
+		else folders[path.substr(0, slash)].push_back(path.substr(slash + 1));
+	};
+	size_t from = 0;
+	for (size_t nl; (nl = manifest.find('\n', from)) != std::string::npos; from = nl + 1) take(manifest.substr(from, nl - from));
+	take(manifest.substr(from));
+	return folders;
+}
 
 bool readIndex(const Reader &read, uint64_t size, std::vector<IndexEntry> &out, std::string &error) {
 	out.clear();
@@ -103,10 +142,9 @@ bool readIndex(const Reader &read, uint64_t size, std::vector<IndexEntry> &out, 
 		if (!findChunk(index, fstart, fend, "info", cs, csz) || csz < 22) { error = "a File has no info"; return false; }
 		const uint16_t namelen = rd16(&index[cs + 20]);
 		if (cs + 22 + size_t(namelen) * 2 > fend) { error = "a File's name is out of range"; return false; }
-		for (uint16_t i = 0; i < namelen; i++) {
-			const uint16_t c = rd16(&index[cs + 22 + i * 2]);
-			e.name.push_back(c < 0x80 ? char(c) : '?');   // stored names are ASCII (a hash, or a path)
-		}
+		std::vector<uint16_t> n16(namelen);
+		for (uint16_t i = 0; i < namelen; i++) n16[i] = rd16(&index[cs + 22 + i * 2]);
+		e.name = utf16ToUtf8(n16);
 		if (!findChunk(index, fstart, fend, "segm", cs, csz) || csz < 28) { error = "a File has no segm"; return false; }
 		e.offset = rd64(&index[cs + 4]);
 		e.size = rd64(&index[cs + 12]);
