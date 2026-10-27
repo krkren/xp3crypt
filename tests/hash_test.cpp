@@ -114,6 +114,49 @@ int main() {
 		}
 	}
 
+	// plainNames: a path kept under its own name (a startup.tjs the engine's own XP3 mount finds),
+	// still encrypted and out of the manifest; saltBase: the salts start past it
+	{
+		const fs::path arc2 = fs::temp_directory_path() / ("xp3crypt_hash_" + tag + "_plain.xp3");
+		make("startup.tjs", 300);
+		PackOptions o2;
+		o2.hashNames = true;
+		o2.compressIndex = false;
+		o2.plainNames = { "startup.tjs" };
+		o2.saltBase = 0x01000000;
+		PackResult r2;
+		CHECK(pack(dir, arc2, key, o2, r2, err, {}));
+		std::ifstream in2(arc2, std::ios::binary);
+		const std::string b2((std::istreambuf_iterator<char>(in2)), std::istreambuf_iterator<char>());
+		in2.close();
+		std::vector<IndexEntry> e2;
+		CHECK(readIndex([&](uint64_t off, void *buf, size_t len) { std::memcpy(buf, b2.data() + off, len); }, b2.size(), e2, err));
+		CHECK(e2.size() == originals.size() + 1);
+		int plain = 0;
+		for (const auto &e : e2) {
+			CHECK(e.fileHash > 0x01000000u && e.fileHash <= 0x01000000u + uint32_t(e2.size()));
+			if (e.name == "startup.tjs") {
+				plain++;
+				std::vector<uint8_t> blob(b2.begin() + e.offset, b2.begin() + e.offset + e.size);
+				CHECK(blob != originals["startup.tjs"]);   // encrypted all the same
+				xorFile(blob.data(), blob.size(), 0, e.fileHash, key);
+				CHECK(blob == originals["startup.tjs"]);
+			} else {
+				CHECK(e.name.size() == 32);
+			}
+			if (e.name == manifestName(key)) {
+				std::vector<uint8_t> blob(b2.begin() + e.offset, b2.begin() + e.offset + e.size);
+				xorFile(blob.data(), blob.size(), 0, e.fileHash, key);
+				const std::string text(blob.begin(), blob.end());
+				CHECK(text.find("startup.tjs") == std::string::npos);
+				CHECK(text.find("scenario/s0001.ks\n") != std::string::npos);
+			}
+		}
+		CHECK(plain == 1);
+		CHECK(b2.find("s0001.ks") == std::string::npos);
+		fs::remove(arc2, ec);
+	}
+
 	fs::remove_all(dir, ec);
 	fs::remove(arc, ec);
 	wipe(key);

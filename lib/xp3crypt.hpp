@@ -110,6 +110,13 @@ int writeSlots(std::vector<uint8_t> &binary, const Key &key, std::string &error)
 struct PackOptions {
 	bool compressIndex = true;          ///< zlib-compress the file index (when built with zlib)
 	bool hashNames = false;             ///< store hashName(key, path) as each file's name
+	/// with hashNames, paths (relative, '/'-separated, as in the folder) stored under their own
+	/// name instead: the engine's built-in XP3 mount can then find them (a startup.tjs that
+	/// mounts the rest through xpcrypt://). They're still encrypted, and left out of the manifest
+	std::set<std::string> plainNames;
+	/// each file's adlr number (its cipher salt) is saltBase + 1, + 2, ...: archives of one game
+	/// that share a key need ranges that don't overlap, so no two files share a keystream
+	uint32_t saltBase = 0;
 	std::set<std::string> discard;      ///< lowercase ".ext" to leave out (e.g. ".bak")
 };
 
@@ -125,6 +132,7 @@ using Progress = std::function<bool(const std::string &, uint64_t, uint64_t)>;
 
 /// Packs the files under `sourceDir` (skipping names that start with '.' and CVS folders) into
 /// an encrypted archive at `output`, each file encrypted with `key`. false + error on failure
+/// (also when the files would run past the salt range: more than 2^32 - 2 - saltBase of them)
 bool pack(const std::filesystem::path &sourceDir, const std::filesystem::path &output, const Key &key,
           const PackOptions &opt, PackResult &result, std::string &error, const Progress &progress = {});
 

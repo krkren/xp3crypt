@@ -13,7 +13,9 @@
 
 #include <cstdio>
 #include <fstream>
+#include <cstdlib>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -26,8 +28,10 @@ int usage() {
 	std::cerr <<
 	    "xp3crypt - encrypted XP3 archives for Kirikiri Z\n\n"
 	    "  xp3crypt keygen  <keyfile>                      make a new random key\n"
-	    "  xp3crypt pack    <folder> <out.xp3> [--hash] --keyfile <path>   pack, encrypted\n"
-	    "                                                   --hash also hides the file names\n"
+	    "  xp3crypt pack    <folder> <out.xp3> [--hash] [--plain <path>]... [--salt-base <n>] --keyfile <path>\n"
+	    "                                                   pack, encrypted; --hash also hides the file names,\n"
+	    "                                                   but for each --plain path (e.g. startup.tjs);\n"
+	    "                                                   --salt-base keeps archives sharing a key apart\n"
 	    "  xp3crypt setkey  <binary> --keyfile <path>      write the key into a binary's slot\n"
 	    "  xp3crypt readkey <binary>                       print the key in a binary\n"
 	    "  xp3crypt check   <binary>                       report the slot and key\n\n"
@@ -86,11 +90,16 @@ int keygen(const std::vector<std::string> &rest) {
 int pack(const std::vector<std::string> &rest) {
 	std::vector<std::string> pos;
 	bool hash = false;
+	std::set<std::string> plain;
+	unsigned long long saltBase = 0;
 	for (size_t i = 0; i < rest.size(); i++) {
 		if (rest[i] == "--key" || rest[i] == "--keyfile") { i++; continue; }
 		if (rest[i] == "--hash") { hash = true; continue; }
+		if (rest[i] == "--plain" && i + 1 < rest.size()) { plain.insert(rest[++i]); continue; }
+		if (rest[i] == "--salt-base" && i + 1 < rest.size()) { saltBase = std::strtoull(rest[++i].c_str(), nullptr, 0); continue; }
 		pos.push_back(rest[i]);
 	}
+	if (saltBase >= 0xffffffffULL) { std::cerr << "--salt-base is too large\n"; return 1; }
 	if (pos.size() < 2) return usage();
 	xp3crypt::Key key;
 	std::string error;
@@ -99,6 +108,8 @@ int pack(const std::vector<std::string> &rest) {
 	xp3crypt::PackResult result;
 	xp3crypt::PackOptions opt;
 	opt.hashNames = hash;
+	opt.plainNames = plain;
+	opt.saltBase = uint32_t(saltBase);
 	if (hash) opt.compressIndex = false;
 	const bool ok = xp3crypt::pack(pos[0], pos[1], key, opt, result, error,
 	    [](const std::string &name, uint64_t, uint64_t) { std::cout << "  " << name << "\n"; return true; });

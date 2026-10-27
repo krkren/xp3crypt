@@ -53,6 +53,15 @@ each request and matches it, decrypts the file on read, and lists folders from t
 engine still resolves a game's bare file names. The game mounts it with
 `XP3Crypt.mount("<domain>", "<archive>")` and adds `xpcrypt://<domain>/<folder>` to its auto path.
 
+`--plain <path>` keeps a path's own name in a hashed archive (still encrypted, and not in the
+manifest). That's how a game ships as a hashed `data.xp3` with nothing beside it: the engine opens
+`data.xp3` as usual and finds `startup.tjs` there by name, and that script mounts the same archive
+through `xpcrypt://` for everything else.
+
+A game split into several archives under one key (`data.xp3`, `bgimage.xp3`, `voice.xp3`...) packs
+each with its own `--salt-base` (say `0x01000000` apart): a file's cipher salt is its number in
+the archive plus the base, so no two files of the game share a keystream.
+
 The hash is keyed with the game key, so the hashes differ per game and can't be precomputed or
 carried between games. Like the content encryption, this keeps the names out of casual view; the
 key ships with the game, so a determined person can still recover them.
